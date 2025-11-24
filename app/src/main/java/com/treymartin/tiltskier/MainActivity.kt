@@ -1,10 +1,18 @@
 package com.treymartin.tiltskier
 
+import android.content.Context
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.Canvas
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,9 +38,15 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
@@ -40,9 +54,12 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.treymartin.tiltskier.data.ScoresRepository
 import com.treymartin.tiltskier.data.SettingsRepository
+import com.treymartin.tiltskier.game.GameUiState
+import com.treymartin.tiltskier.game.RunState
 import com.treymartin.tiltskier.ui.game.GameViewModel
 import com.treymartin.tiltskier.ui.scores.ScoresViewModel
 import com.treymartin.tiltskier.ui.settings.SettingsViewModel
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
 
@@ -255,6 +272,128 @@ fun HowToScreen(onBack: () -> Unit) {
             Spacer(Modifier.height(12.dp))
             Text("Goal", style = MaterialTheme.typography.titleMedium)
             Text("Stay alive as long as possible and beat your top score!")
+        }
+    }
+}
+
+@Composable
+fun TiltListener(onTilt: (ax: Float, ay: Float) -> Unit) {
+    val context = LocalContext.current
+
+    DisposableEffect(Unit) {
+        val sensorManager =
+            context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        val accel = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+
+        val listener = object : SensorEventListener {
+            override fun onSensorChanged(event: SensorEvent) {
+                val ax = event.values[0]   // left/right tilt
+                val ay = event.values[1]   // forward/back tilt
+                onTilt(ax, ay)
+            }
+
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+        }
+
+        sensorManager.registerListener(listener, accel, SensorManager.SENSOR_DELAY_GAME)
+
+        // Cleanup
+        onDispose {
+            sensorManager.unregisterListener(listener)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun GameScreen(
+    viewModel: GameViewModel,
+    onExit: () -> Unit,
+    onSettings: () -> Unit
+) {
+    val ui = viewModel.ui
+    val lastTime = remember { mutableStateOf(System.currentTimeMillis()) }
+
+    // Tilt
+    TiltListener { ax, ay -> viewModel.onTilt(ax, ay) }
+
+    // Game loop
+    LaunchedEffect(Unit) {
+        while (true) {
+            val now = System.currentTimeMillis()
+            val dt = now - lastTime.value
+            lastTime.value = now
+            viewModel.tick(dt)
+            delay(16L) // ~60 fps
+        }
+    }
+
+    // Layout similar to your wireframe: score text, gear icon, skier + obstacles.
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Current Score: ${ui.score}") },
+                navigationIcon = {
+                    IconButton(onClick = onExit) {
+                        Icon(Icons.Default.ArrowBack, "Exit")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onSettings) {
+                        Icon(Icons.Default.Settings, "Settings")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Box(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+        ) {
+            GameCanvas(ui)
+            if (ui.runState == RunState.GAME_OVER) {
+                // overlay game over message & restart button
+                Column(
+                    Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text("Game Over", style = MaterialTheme.typography.headlineMedium)
+                    Text("Score: ${ui.score}  Best: ${ui.bestScore}")
+                    Spacer(Modifier.height(8.dp))
+                    Button(onClick = { viewModel.restart() }) {
+                        Text("Play Again")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun GameCanvas(ui: GameUiState) {
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        val w = size.width
+        val h = size.height
+
+        // Convert normalized coords to pixels
+        fun nx(x: Float) = x * w
+        fun ny(y: Float) = h - y * h   // y = 0 at bottom
+
+        // Skier (circle)
+        drawCircle(
+            color = Color.White,
+            center = Offset(nx(ui.skierX), ny(ui.skierY)),
+            radius = 20f
+        )
+
+        // Obstacles (rectangles)
+        ui.obstacles.forEach { o ->
+            drawRect(
+                color = Color.Green,
+                topLeft = Offset(nx(o.x) - 15f, ny(o.y) - 30f),
+                size = Size(30f, 30f)
+            )
         }
     }
 }
