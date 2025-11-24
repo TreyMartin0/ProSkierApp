@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.treymartin.tiltskier.data.SettingsRepository
 import com.treymartin.tiltskier.data.ScoresRepository
 import com.treymartin.tiltskier.game.*
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlin.math.hypot
 import kotlin.random.Random
@@ -18,20 +19,27 @@ class GameViewModel(
     private val scoresRepo: ScoresRepository
 ) : ViewModel() {
 
+    private val rng = Random(System.currentTimeMillis())
+
     var ui by mutableStateOf(GameUiState())
         private set
 
     init {
-        // Load settings and best score when VM starts
+        // load best score once
         viewModelScope.launch {
-            val settings = settingsRepo.read()
             val best = scoresRepo.best()
-            ui = ui.copy(
-                sensitivity = settings.sensitivity,
-                soundOn = settings.soundOn,
-                hapticsOn = settings.hapticsOn,
-                bestScore = best
-            )
+            ui = ui.copy(bestScore = best)
+        }
+
+        // react to settings changes in real time
+        viewModelScope.launch {
+            settingsRepo.settingsFlow.collectLatest { settings ->
+                ui = ui.copy(
+                    sensitivity = settings.sensitivity,
+                    soundOn = settings.soundOn,
+                    hapticsOn = settings.hapticsOn
+                )
+            }
         }
     }
 
@@ -49,35 +57,44 @@ class GameViewModel(
         val speed = ui.worldSpeed
 
         // Move obstacles downward
-        var obstacles = ui.obstacles.map { it.copy(y = it.y - speed * dtSec) }
-            .filter { it.y + it.radius > 0f } // keep only on-screen
+        val moved = ui.obstacles.map { it.copy(y = it.y - speed * dtSec) }
 
-        // Spawn new obstacles probabilistically
-        val rand = Random(ui.rngSeed)
-        var seed = ui.rngSeed
-        if (rand.nextFloat() < 0.05f) {
-            seed = rand.nextLong()
+        // Keep obstacles while ANY part is still on the green:
+        // y + radius > 0  => top edge above bottom line
+        val remaining = moved.filter { it.y + it.radius > 0f }
+
+        // Obstacles that just fully passed off the bottom:
+        val passedCount = moved.count { it.y + it.radius <= 0f }
+
+        var obstacles = remaining
+
+        // Spawn new obstacles near the very top edge
+        if (rng.nextFloat() < 0.03f) {  // spawn probability per frame
+            val radius = 0.04f          // tweak size if you want
             val new = Obstacle(
-                id = seed,
-                x = rand.nextFloat(),  // 0..1
-                y = 1.5f,
-                radius = 0.05f,
-                type = if (rand.nextBoolean()) ObstacleType.TREE else ObstacleType.ROCK
+                id = rng.nextLong(),
+                x = rng.nextFloat(),         // 0..1 across width
+                y = 1f + radius,             // starts just above top
+                radius = radius,
+                type = if (rng.nextBoolean()) ObstacleType.TREE else ObstacleType.ROCK
             )
             obstacles = obstacles + new
         }
 
-        // Collision check
+        //Collision check
         val skierX = ui.skierX
         val skierY = ui.skierY
-        val collided = obstacles.any {
-            val dx = it.x - skierX
-            val dy = it.y - skierY
-            hypot(dx, dy) < it.radius + 0.04f
+        val skierRadius = 0.035f
+
+        val collided = obstacles.any { o ->
+            val dx = o.x - skierX
+            val dy = o.y - skierY
+            hypot(dx, dy) < o.radius + skierRadius
         }
 
-        val newScore = ui.score + (speed * dtSec * 10).toInt()
-        val newSpeed = (speed + dtSec * 0.05f).coerceAtMost(4.0f)
+        // Score: +1 per obstacle successfully passed
+        val newScore = ui.score + passedCount
+        val newSpeed = (speed + dtSec * 0.02f).coerceAtMost(3.0f)
 
         if (collided) {
             crash()
@@ -85,8 +102,7 @@ class GameViewModel(
             ui = ui.copy(
                 obstacles = obstacles,
                 score = newScore,
-                worldSpeed = newSpeed,
-                rngSeed = seed
+                worldSpeed = newSpeed
             )
         }
     }
@@ -95,7 +111,7 @@ class GameViewModel(
         ui = ui.copy(
             runState = RunState.RUNNING,
             score = 0,
-            worldSpeed = 1.0f,
+            worldSpeed = 0.4f,
             obstacles = emptyList()
         )
     }

@@ -5,18 +5,21 @@ import androidx.datastore.preferences.core.edit
 import com.treymartin.tiltskier.data.datastore.PrefKeys
 import com.treymartin.tiltskier.data.datastore.appDataStore
 import com.treymartin.tiltskier.settings.SettingsUiState
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 
 class SettingsRepository(private val context: Context) {
 
-    suspend fun read(): SettingsUiState {
-        val prefs = context.appDataStore.data.first()
-        return SettingsUiState(
-            sensitivity = prefs[PrefKeys.SENSITIVITY] ?: 1.0f,
-            soundOn = prefs[PrefKeys.SOUND_ON] ?: true,
-            hapticsOn = prefs[PrefKeys.HAPTICS_ON] ?: true,
-        )
-    }
+    val settingsFlow: Flow<SettingsUiState> =
+        context.appDataStore.data.map { prefs ->
+            SettingsUiState(
+                sensitivity = prefs[PrefKeys.SENSITIVITY] ?: 1.0f,
+                soundOn = prefs[PrefKeys.SOUND_ON] ?: true,
+                hapticsOn = prefs[PrefKeys.HAPTICS_ON] ?: true,
+            )
+        }
+    suspend fun read(): SettingsUiState = settingsFlow.first()
 
     suspend fun update(block: (SettingsUiState) -> SettingsUiState) {
         context.appDataStore.edit { prefs ->
