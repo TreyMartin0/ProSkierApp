@@ -21,6 +21,9 @@ class GameViewModel(
 
     private val rng = Random(System.currentTimeMillis())
 
+    private var distanceSinceLastSpawn = 0f
+    private var lastSpawnType: ObstacleType? = null
+
     var ui by mutableStateOf(GameUiState())
         private set
 
@@ -45,9 +48,40 @@ class GameViewModel(
 
     // ax from accelerometer (tilt left/right), ay unused or for future
     fun onTilt(ax: Float, ay: Float) {
+        if (ui.runState != RunState.RUNNING) return
         val delta = -ax * ui.sensitivity * 0.01f
         val newX = (ui.skierX + delta).coerceIn(0f, 1f)
-        ui = ui.copy(skierX = newX)
+
+        // Decide pose based on how strong the movement is
+        val threshold = 0.0085f
+
+        val newPose = when {
+            delta > threshold  -> SkierPos.RIGHT
+            delta < -threshold -> SkierPos.LEFT
+            else -> SkierPos.STRAIGHT
+        }
+
+        ui = ui.copy(
+            skierX = newX,
+            skierPos = newPose
+        )
+    }
+
+    private fun nextObstacleType(): ObstacleType {
+        val last = lastSpawnType
+        val type = if (last == null) {
+            // first one truly random
+            if (rng.nextBoolean()) ObstacleType.TREE else ObstacleType.ROCK
+        } else {
+            // 70% chance to flip, 30% chance to repeat
+            if (rng.nextFloat() < 0.7f) {
+                if (last == ObstacleType.TREE) ObstacleType.ROCK else ObstacleType.TREE
+            } else {
+                last
+            }
+        }
+        lastSpawnType = type
+        return type
     }
 
     fun tick(dtMillis: Long) {
@@ -68,23 +102,50 @@ class GameViewModel(
 
         var obstacles = remaining
 
-        // Spawn new obstacles near the very top edge
-        if (rng.nextFloat() < 0.03f) {  // spawn probability per frame
-            val radius = 0.04f          // tweak size if you want
-            val new = Obstacle(
-                id = rng.nextLong(),
-                x = rng.nextFloat(),         // 0..1 across width
-                y = 1f + radius,             // starts just above top
-                radius = radius,
-                type = if (rng.nextBoolean()) ObstacleType.TREE else ObstacleType.ROCK
-            )
-            obstacles = obstacles + new
+        // accumulate distance traveled this frame
+        val distanceThisFrame = speed * dtSec
+        distanceSinceLastSpawn += distanceThisFrame
+
+        val spawnSpacing = 0.4f
+
+        // spawn based on distance, not frame probability
+        while (distanceSinceLastSpawn >= spawnSpacing) {
+            distanceSinceLastSpawn -= spawnSpacing
+
+            // base X for this "row" of obstacles
+            val baseX = rng.nextFloat()
+
+            // 25% chance to spawn a cluster of 2,3,4 side-by-side
+            val randomNumber = (2..4).random()
+            val clusterSize = if (rng.nextFloat() < 0.25f) randomNumber else 1
+
+            for (i in 0 until clusterSize) {
+                val type = nextObstacleType()
+
+                val radius = when (type) {
+                    ObstacleType.TREE -> 0.06f   // bigger
+                    ObstacleType.ROCK -> 0.03f   // smaller
+                }
+
+                // spread them horizontally around baseX
+                val offset = (i - (clusterSize - 1) / 2f) * 0.18f
+                val x = (baseX + offset).coerceIn(0.1f, 0.9f)
+
+                val new = Obstacle(
+                    id = rng.nextLong(),
+                    x = x,
+                    y = 1f + radius,
+                    radius = radius,
+                    type = type
+                )
+                obstacles = obstacles + new
+            }
         }
 
         //Collision check
         val skierX = ui.skierX
         val skierY = ui.skierY
-        val skierRadius = 0.035f
+        val skierRadius = 0.015f
 
         val collided = obstacles.any { o ->
             val dx = o.x - skierX
@@ -93,8 +154,8 @@ class GameViewModel(
         }
 
         // Score: +1 per obstacle successfully passed
-        val newScore = ui.score + passedCount
-        val newSpeed = (speed + dtSec * 0.02f).coerceAtMost(3.0f)
+        val newScore = ui. score + passedCount
+        val newSpeed = (speed + dtSec * 0.01f).coerceAtMost(3.0f)
 
         if (collided) {
             crash()
@@ -106,6 +167,7 @@ class GameViewModel(
             )
         }
     }
+
 
     fun startRun() {
         ui = ui.copy(

@@ -15,7 +15,8 @@ class ScoresViewModel(
     var ui by mutableStateOf(ScoresUiState())
         private set
 
-    init {
+    // Call this whenever the Scores screen is opened
+    fun refresh() {
         viewModelScope.launch {
             val top = repo.top5()
             val best = repo.best()

@@ -131,7 +131,7 @@ fun MenuScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Tilt Skier") },
+                title = { Text("Pro Skier Extreme") },
                 actions = {
                     IconButton(onClick = onSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
@@ -214,6 +214,10 @@ fun ScoresScreen(
     viewModel: ScoresViewModel,
     onBack: () -> Unit
 ) {
+    LaunchedEffect(Unit) {
+        viewModel.refresh()
+    }
+
     val ui = viewModel.ui
 
     Scaffold(
@@ -235,6 +239,7 @@ fun ScoresScreen(
         ) {
             Text("Best: ${ui.best}", style = MaterialTheme.typography.headlineMedium)
             Spacer(Modifier.height(16.dp))
+
             LazyColumn {
                 itemsIndexed(ui.top5) { index, entry ->
                     Text("${index + 1}. Score: ${entry.value}")
