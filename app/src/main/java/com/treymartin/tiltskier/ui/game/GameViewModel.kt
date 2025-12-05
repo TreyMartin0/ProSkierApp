@@ -14,12 +14,15 @@ import kotlinx.coroutines.launch
 import kotlin.math.hypot
 import kotlin.random.Random
 
+
 class GameViewModel(
     private val settingsRepo: SettingsRepository,
     private val scoresRepo: ScoresRepository
 ) : ViewModel() {
 
     private val rng = Random(System.currentTimeMillis())
+
+    var playCrashSound by mutableStateOf(false)
 
     private var distanceSinceLastSpawn = 0f
     private var lastSpawnType: ObstacleType? = null
@@ -191,6 +194,7 @@ class GameViewModel(
     }
 
     fun crash() {
+        playCrashSound = true
         ui = ui.copy(runState = RunState.GAME_OVER)
         // record score
         viewModelScope.launch {
@@ -198,6 +202,5 @@ class GameViewModel(
             val best = scoresRepo.best()
             ui = ui.copy(bestScore = best)
         }
-        // TODO: play sound / haptics
     }
 }

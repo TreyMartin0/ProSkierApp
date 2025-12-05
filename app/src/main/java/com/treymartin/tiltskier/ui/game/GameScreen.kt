@@ -33,9 +33,16 @@ import androidx.compose.ui.res.imageResource
 import com.treymartin.tiltskier.R
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import com.treymartin.tiltskier.game.GameUiState
 import com.treymartin.tiltskier.game.RunState
 import kotlinx.coroutines.delay
+import android.content.Context
+import android.media.MediaPlayer
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
+import androidx.compose.ui.platform.LocalContext
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,6 +69,46 @@ fun GameScreen(
             lastTime.value = now
             viewModel.tick(dt)
             delay(16L) // ~60 fps
+        }
+    }
+
+    val vib_context = LocalContext.current
+    LaunchedEffect(ui.runState, ui.hapticsOn) {
+        if (ui.runState == RunState.GAME_OVER && ui.hapticsOn) {
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vm = vib_context.getSystemService(VibratorManager::class.java)
+                vm?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                vib_context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            }
+
+            vibrator?.let {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    it.vibrate(
+                        VibrationEffect.createOneShot(
+                             200L,
+                             VibrationEffect.DEFAULT_AMPLITUDE
+                        )
+                    )
+                } else {
+                    @Suppress("DEPRECATION")
+                    it.vibrate(200L)
+                }
+            }
+        }
+    }
+
+    //Sound on crash
+    val sound_context = LocalContext.current
+    LaunchedEffect(viewModel.playCrashSound) {
+        if (viewModel.playCrashSound && ui.soundOn) {
+            val mp = MediaPlayer.create(sound_context, R.raw.ouch)
+            mp?.setOnCompletionListener { it.release() }
+            mp?.start()
+
+            // Reset event so it doesn't replay
+            viewModel.playCrashSound = false
         }
     }
 

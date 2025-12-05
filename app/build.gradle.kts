@@ -52,7 +52,9 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.9.6")   // Nav
     implementation("androidx.datastore:datastore-preferences:1.2.0") // DataStore
     implementation("com.google.code.gson:gson:2.13.0")
-    implementation(libs.androidx.compose.runtime)               // For JSON scores
+    implementation(libs.androidx.compose.runtime)
+    implementation(libs.androidx.compose.foundation.layout)
+    implementation(libs.androidx.compose.foundation)               // For JSON scores
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
